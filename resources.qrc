@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/surpac_parser" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
