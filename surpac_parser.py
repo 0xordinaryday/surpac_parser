@@ -276,11 +276,25 @@ class SurpacParser:
                                 output_file.write(line)
                     elif geom.type() == QgsWkbTypes.LineGeometry:
                         if geomSingleType:
-                            x = geom.asPolyline()
-                            print("Line: ", x, "length: ", geom.length())
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')
+                            for inner_list in coordinate_list:
+                                if len(inner_list) > 2:
+                                    DUMMY_Z = str(inner_list[2])
+                                line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                output_file.write(line)
+                            output_file.write(SEGBREAK)
                         else:
-                            x = geom.asMultiPolyline()
-                            print("MultiLine: ", x, "length: ", geom.length())
+                            # multipolyline - nests two deep - so outer list, middle list is a list of segments, inner lists are lists of points
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')
+                            for segment_list in coordinate_list:
+                                for inner_list in segment_list:
+                                    if len(inner_list) > 2:
+                                        DUMMY_Z = str(inner_list[2])
+                                    line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                    output_file.write(line)
+                                output_file.write(SEGBREAK)  # after each segment
                     elif geom.type() == QgsWkbTypes.PolygonGeometry:
                         if geomSingleType:
                             x = geom.asPolygon()
