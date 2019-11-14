@@ -21,6 +21,7 @@
  *                                                                         *
  ***************************************************************************/
 """
+import json
 from datetime import datetime
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
@@ -250,17 +251,29 @@ class SurpacParser:
                     if geom.type() == QgsWkbTypes.PointGeometry:
                         # the geometry type can be of single or multi type
                         if geomSingleType:
-                            x = geom.asPoint()
-                            print("X: ", x.x(), ',', "Y: ", x.y())
-                            line = DUMMY_STR + ',' + str(x.y()) + ',' + str(x.x()) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')  # is a single list of coordinates of length 2, 3 or 4 (XY), (XYZ) or (XYZM)
+                            if len(coordinate_list) > 2:
+                                    DUMMY_Z = str(coordinate_list[2])
+                            line = DUMMY_STR + ',' + str(coordinate_list[1]) + ',' + str(coordinate_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
                             output_file.write(line)
                         else:
-                            x = geom.asMultiPoint()
-                            # multipoint geometry x is a *list* of points, may be one or more element in the list
-                            for point in x:
-                                line = DUMMY_STR + ',' + str(point.y()) + ',' + str(point.x()) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
+                            ''' multipoint geometry delivers results as a *list* of qgis points if called via geom.asMultiPoint()
+                                however, like asPoint, this drops the Z values (if present)
+                                calling asJson gives a JSON object that includes the Z values
+                                so we call asJson, convert to a Python dictionary and then get the coordinates which have a key value
+                                of 'coordinates'. The value is a list of lists, where each inner list has this form:
+                                [485490.1175313188, 5438619.58900284, 0.0]
+                                there may be only one inner list
+                                the inner list length will be two (2) if there are no Z coordinates
+                            '''
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')
+                            for inner_list in coordinate_list:
+                                if len(inner_list) > 2:
+                                    DUMMY_Z = str(inner_list[2])
+                                line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
                                 output_file.write(line)
-                            print("MultiPoint: ", x)
                     elif geom.type() == QgsWkbTypes.LineGeometry:
                         if geomSingleType:
                             x = geom.asPolyline()
