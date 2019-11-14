@@ -26,7 +26,8 @@ from datetime import datetime
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QFileDialog
-from qgis.core import QgsProject, Qgis, QgsFeatureRequest, QgsDistanceArea, QgsGeometry, QgsPoint, QgsPointXY, QgsWkbTypes
+from qgis.core import QgsProject, Qgis, QgsFeatureRequest, QgsDistanceArea, QgsGeometry, \
+    QgsPoint, QgsPointXY, QgsWkbTypes, QgsMapLayer
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -185,6 +186,21 @@ class SurpacParser:
                 self.tr(u'&SurpacParser'),
                 action)
             self.iface.removeToolBarIcon(action)
+            
+            
+    def getLayerByName(self, layer_name):
+        layerList = QgsProject.instance().layerTreeRoot().findLayers()
+        for layer in layerList:
+            if layer.name() == layer_name:
+                return layer
+            
+            
+    def updateComboBox(self):
+        self.dlg.layerBox.clear()
+        layerList = QgsProject.instance().layerTreeRoot().findLayers()
+        for layer in layerList:
+            if layer.layer().type() == QgsMapLayer.VectorLayer:
+                self.dlg.layerBox.addItem(layer.name())
 
 
     def run(self):
@@ -197,12 +213,7 @@ class SurpacParser:
             self.dlg = SurpacParserDialog()
             self.dlg.pushButton.clicked.connect(self.select_output_file)
                 
-        # Fetch the currently loaded layers
-        layers = QgsProject.instance().layerTreeRoot().children()
-        # Clear the contents of the layerBox from previous runs
-        self.dlg.layerBox.clear()
-        # Populate the layerBox with names of all the loaded layers
-        self.dlg.layerBox.addItems([layer.name() for layer in layers])
+        self.updateComboBox()
 
         # show the dialog
         self.dlg.show()
@@ -212,8 +223,7 @@ class SurpacParser:
         if result:
             filename = self.dlg.lineEdit.text()
             with open(filename, 'w') as output_file:
-                selectedLayerIndex = self.dlg.layerBox.currentIndex()
-                selectedLayer = layers[selectedLayerIndex].layer()
+                selectedLayer = self.getLayerByName(self.dlg.layerBox.currentText()).layer()
                 fieldnames = [field.name() for field in selectedLayer.fields()]
                 # write header
                 # get date/time
