@@ -296,12 +296,28 @@ class SurpacParser:
                                     output_file.write(line)
                                 output_file.write(SEGBREAK)  # after each segment
                     elif geom.type() == QgsWkbTypes.PolygonGeometry:
-                        if geomSingleType:
-                            x = geom.asPolygon()
-                            print("Polygon: ", x, "Area: ", geom.area())
+                        if geomSingleType:  # essentially the same as multipolyline
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')
+                            for segment_list in coordinate_list:
+                                for inner_list in segment_list:
+                                    if len(inner_list) > 2:
+                                        DUMMY_Z = str(inner_list[2])
+                                    line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                    output_file.write(line)
+                                output_file.write(SEGBREAK)  # after each segment
                         else:
-                            x = geom.asMultiPolygon()
-                            print("MultiPolygon: ", x, "Area: ", geom.area())
+                            # this one nests four deep for some reason
+                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                            coordinate_list = parsed_json.get('coordinates')
+                            for outer_most_list in coordinate_list:
+                                for segment_list in outer_most_list:
+                                    for inner_list in segment_list:
+                                        if len(inner_list) > 2:
+                                            DUMMY_Z = str(inner_list[2])
+                                        line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                        output_file.write(line)
+                                    output_file.write(SEGBREAK)  # after each segment
                     else:
                         print("Unknown or invalid geometry")
                                     
