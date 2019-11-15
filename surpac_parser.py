@@ -23,17 +23,21 @@
 """
 import json
 from datetime import datetime
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, QVariant, QPointF
+from qgis.PyQt.QtGui import QIcon, QPolygonF
 from qgis.PyQt.QtWidgets import QAction, QFileDialog
 from qgis.core import QgsProject, Qgis, QgsFeatureRequest, QgsDistanceArea, QgsGeometry, \
-    QgsPoint, QgsPointXY, QgsWkbTypes, QgsMapLayer
+    QgsPoint, QgsPointXY, QgsWkbTypes, QgsMapLayer, QgsVectorLayer, \
+    QgsFeature, QgsField
+    
 
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
 from .surpac_parser_dialog import SurpacParserDialog
 import os.path
+import sys
+import os
 
 
 class SurpacParser:
@@ -90,6 +94,11 @@ class SurpacParser:
         filename, _filter = QFileDialog.getSaveFileName(
             self.dlg, "Select output file ","", '*.str')
         self.dlg.lineEdit.setText(filename)
+        
+    def select_input_file(self):
+        filename, _filter = QFileDialog.getOpenFileName(
+            self.dlg, "Select string file to open ","", '*.str')
+        self.dlg.lineEdit_2.setText(filename)
 
     def add_action(
         self,
@@ -201,8 +210,7 @@ class SurpacParser:
         for layer in layerList:
             if layer.layer().type() == QgsMapLayer.VectorLayer:
                 self.dlg.layerBox.addItem(layer.name())
-
-
+                
     def run(self):
         """Run method that performs all the real work"""
 
@@ -212,6 +220,7 @@ class SurpacParser:
             self.first_start = False
             self.dlg = SurpacParserDialog()
             self.dlg.pushButton.clicked.connect(self.select_output_file)
+            self.dlg.pushButton_2.clicked.connect(self.select_input_file)
                 
         self.updateComboBox()
 
@@ -221,120 +230,249 @@ class SurpacParser:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:
-            filename = self.dlg.lineEdit.text()
-            with open(filename, 'w') as output_file:
-                selectedLayer = self.getLayerByName(self.dlg.layerBox.currentText()).layer()
-                fieldnames = [field.name() for field in selectedLayer.fields()]
-                # write header
-                # get date/time
-                now = datetime.now()
-                dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-                header1 = 'Exported from QGIS,' + dt_string + ',,' + '\n'
-                header2 = '0,           0.000,           0.000,           0.000,           0.000,           0.000,           0.000' + '\n'
-                SEGBREAK = '0, 0.000, 0.000, 0.000,' + '\n'
-                output_file.write(header1)
-                output_file.write(header2)
-                # write feature attributes
-                for f in selectedLayer.getFeatures():
-                
-                    # 
-                    # retrieve every feature with its geometry and attributes
-                    # print("Feature ID: ", f.id()) # don't need this
-                    # fetch geometry
-                    # show some information about the feature geometry
-                    geom = f.geometry()
-                    geomSingleType = QgsWkbTypes.isSingleType(geom.wkbType())
+            export_filename = self.dlg.lineEdit.text()
+            import_filename = self.dlg.lineEdit_2.text()
+            if export_filename != '' and import_filename == '':
+                with open(export_filename, 'w') as output_file:
+                    selectedLayer = self.getLayerByName(self.dlg.layerBox.currentText()).layer()
+                    fieldnames = [field.name() for field in selectedLayer.fields()]
+                    # write header
+                    # get date/time
+                    now = datetime.now()
+                    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+                    header1 = 'Exported from QGIS,' + dt_string + ',,' + '\n'
+                    header2 = '0,           0.000,           0.000,           0.000,           0.000,           0.000,           0.000' + '\n'
+                    SEGBREAK = '0, 0.000, 0.000, 0.000,' + '\n'
+                    output_file.write(header1)
+                    output_file.write(header2)
+                    # write feature attributes
+                    for f in selectedLayer.getFeatures():
                     
-                    # fetch attributes - need for D fields
-                    attrs = f.attributes()
-                    # attrs is a list. It contains all the attribute values of this feature
-                    # print(attrs)
-                    
-                    d_fields = ''
-                    if len(attrs) > 0:  # has at least one D field
-                        for item in attrs:
-                            d_fields = d_fields + str(item) + ','
-                            
-                    DUMMY_Z = '0'  # change this later
-                    DUMMY_STR = '1'  # change this later
-                    
-                    if geom.type() == QgsWkbTypes.PointGeometry:
-                        # the geometry type can be of single or multi type
-                        if geomSingleType:
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')  # is a single list of coordinates of length 2, 3 or 4 (XY), (XYZ) or (XYZM)
-                            if len(coordinate_list) > 2:
-                                    DUMMY_Z = str(coordinate_list[2])
-                            line = DUMMY_STR + ',' + str(coordinate_list[1]) + ',' + str(coordinate_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
-                            output_file.write(line)
-                        else:
-                            ''' multipoint geometry delivers results as a *list* of qgis points if called via geom.asMultiPoint()
-                                however, like asPoint, this drops the Z values (if present)
-                                calling asJson gives a JSON object that includes the Z values
-                                so we call asJson, convert to a Python dictionary and then get the coordinates which have a key value
-                                of 'coordinates'. The value is a list of lists, where each inner list has this form:
-                                [485490.1175313188, 5438619.58900284, 0.0]
-                                there may be only one inner list
-                                the inner list length will be two (2) if there are no Z coordinates
-                            '''
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')
-                            for inner_list in coordinate_list:
-                                if len(inner_list) > 2:
-                                    DUMMY_Z = str(inner_list[2])
-                                line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
+                        # 
+                        # retrieve every feature with its geometry and attributes
+                        # fetch geometry
+                        # show some information about the feature geometry
+                        geom = f.geometry()
+                        geomSingleType = QgsWkbTypes.isSingleType(geom.wkbType())
+                        
+                        # fetch attributes - need for D fields
+                        attrs = f.attributes()
+                        # attrs is a list. It contains all the attribute values of this feature
+                        
+                        d_fields = ''
+                        if len(attrs) > 0:  # has at least one D field
+                            for item in attrs:
+                                d_fields = d_fields + str(item) + ','
+                                
+                        DUMMY_Z = '0'  # change this later
+                        DUMMY_STR = '1'  # change this later
+                        
+                        if geom.type() == QgsWkbTypes.PointGeometry:
+                            # the geometry type can be of single or multi type
+                            if geomSingleType:
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')  # is a single list of coordinates of length 2 or 3 - [X,Y] or [X,Y,Z] 
+                                if len(coordinate_list) > 2:
+                                        DUMMY_Z = str(coordinate_list[2])
+                                line = DUMMY_STR + ',' + str(coordinate_list[1]) + ',' + str(coordinate_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
                                 output_file.write(line)
-                    elif geom.type() == QgsWkbTypes.LineGeometry:
-                        if geomSingleType:
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')
-                            for inner_list in coordinate_list:
-                                if len(inner_list) > 2:
-                                    DUMMY_Z = str(inner_list[2])
-                                line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
-                                output_file.write(line)
-                            output_file.write(SEGBREAK)
-                        else:
-                            # multipolyline - nests two deep - so outer list, middle list is a list of segments, inner lists are lists of points
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')
-                            for segment_list in coordinate_list:
-                                for inner_list in segment_list:
+                            else:
+                                ''' multipoint geometry delivers results as a *list* of qgis points if called via geom.asMultiPoint()
+                                    however, like asPoint, this drops the Z values (if present)
+                                    calling asJson gives a JSON object that includes the Z values (if present)
+                                    so we call asJson, convert to a Python dictionary and then get the coordinates which have a key value
+                                    of 'coordinates'. The value is a list of lists, where each inner list has this form:
+                                    [485490.1175313188, 5438619.58900284, 0.0]
+                                    there may be only one inner list
+                                    the inner list length will be two (2) if there are no Z coordinates
+                                '''
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')
+                                for inner_list in coordinate_list:
+                                    if len(inner_list) > 2:
+                                        DUMMY_Z = str(inner_list[2])
+                                    line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n' + SEGBREAK
+                                    output_file.write(line)
+                        elif geom.type() == QgsWkbTypes.LineGeometry:
+                            if geomSingleType:
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')
+                                for inner_list in coordinate_list:
                                     if len(inner_list) > 2:
                                         DUMMY_Z = str(inner_list[2])
                                     line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
                                     output_file.write(line)
-                                output_file.write(SEGBREAK)  # after each segment
-                    elif geom.type() == QgsWkbTypes.PolygonGeometry:
-                        if geomSingleType:  # essentially the same as multipolyline
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')
-                            for segment_list in coordinate_list:
-                                for inner_list in segment_list:
-                                    if len(inner_list) > 2:
-                                        DUMMY_Z = str(inner_list[2])
-                                    line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
-                                    output_file.write(line)
-                                output_file.write(SEGBREAK)  # after each segment
-                        else:
-                            # this one nests four deep for some reason
-                            parsed_json = json.loads(geom.asJson())  # convert to python dictionary
-                            coordinate_list = parsed_json.get('coordinates')
-                            for outer_most_list in coordinate_list:
-                                for segment_list in outer_most_list:
+                                output_file.write(SEGBREAK)
+                            else:
+                                # multipolyline - nests two deep - so outer list, middle list is a list of segments, inner lists are lists of points
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')
+                                for segment_list in coordinate_list:
                                     for inner_list in segment_list:
                                         if len(inner_list) > 2:
                                             DUMMY_Z = str(inner_list[2])
                                         line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
                                         output_file.write(line)
                                     output_file.write(SEGBREAK)  # after each segment
+                        elif geom.type() == QgsWkbTypes.PolygonGeometry:
+                            if geomSingleType:  # essentially the same as multipolyline
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')
+                                for segment_list in coordinate_list:
+                                    for inner_list in segment_list:
+                                        if len(inner_list) > 2:
+                                            DUMMY_Z = str(inner_list[2])
+                                        line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                        output_file.write(line)
+                                    output_file.write(SEGBREAK)  # after each segment
+                            else:
+                                # this one nests four deep for some reason
+                                parsed_json = json.loads(geom.asJson())  # convert to python dictionary
+                                coordinate_list = parsed_json.get('coordinates')
+                                for outer_most_list in coordinate_list:
+                                    for segment_list in outer_most_list:
+                                        for inner_list in segment_list:
+                                            if len(inner_list) > 2:
+                                                DUMMY_Z = str(inner_list[2])
+                                            line = DUMMY_STR + ',' + str(inner_list[1]) + ',' + str(inner_list[0]) + ',' + DUMMY_Z + ',' + d_fields + '\n'
+                                            output_file.write(line)
+                                        output_file.write(SEGBREAK)  # after each segment
+                        else:
+                            print("Unknown or invalid geometry")
+                                        
+                    footer1 = '0, 0.000, 0.000, 0.000,' + '\n'   # always have SEGBREAK at end of segment, so don't need this
+                    footer2 = '0, 0.000, 0.000, 0.000, END' + '\n'
+                    output_file.write(footer2)
+                self.iface.messageBar().pushMessage("Success", "Output file written at " + export_filename, level=Qgis.Success, duration=3)
+            elif export_filename == '' and import_filename != '':
+            
+                # some vaiables
+                new_segment = []
+                points = {}
+                lines = {}
+                polygons = {}
+                
+                # get file length
+                with open(import_filename, 'r') as infile:
+                    file_length = sum(1 for line in infile)
+                
+                def process(input_line):
+                    nonlocal new_segment
+                    splitline = input_line.strip().split(',')
+                    string_number = int(splitline[0])
+                    y = float(splitline[1])
+                    x = float(splitline[2])
+                    if string_number == 0:  # is a segment break
+                        if len(new_segment) == 1:
+                            new_key = len(points) + 1
+                            points[new_key] = new_segment
+                        elif new_segment[0] == new_segment[-1]:
+                            new_key = len(polygons) + 1
+                            polygons[new_key] = new_segment
+                        else:
+                            new_key = len(lines) + 1
+                            lines[new_key] = new_segment
+                        new_segment = []
                     else:
-                        print("Unknown or invalid geometry")
-                                    
-                    # line = ','.join(str(f[name]) for name in fieldnames) + '\n'
-                    # output_file.write(line)
-                footer1 = '0, 0.000, 0.000, 0.000,' + '\n'   # always have SEGBREAK at end of segment, so don't need this
-                footer2 = '0, 0.000, 0.000, 0.000, END' + '\n'
-                # output_file.write(footer1)
-                output_file.write(footer2)
-            self.iface.messageBar().pushMessage("Success", "Output file written at " + filename, level=Qgis.Success, duration=3)
+                        new_segment.append(splitline)
+
+                with open(import_filename, 'r') as infile:
+                    for index, line in enumerate(infile):
+                        if index + 1 < file_length and index > 1:
+                            process(line)
+                '''
+                print('points:')
+                for key in points.keys():
+                    print(points[key])
+                print('lines')
+                for key in lines.keys():
+                    print(lines[key])
+                print('polygons')
+                for key in polygons.keys():
+                    print(polygons[key])
+                '''
+
+                
+                # see if we can make vector layer from coordinates - start with a polyline
+                if len(lines) > 0:
+                    # set it up
+                    vlyr = QgsVectorLayer("Linestring", "Imported Surpac Polylines", "memory")
+                    
+                    dprov = vlyr.dataProvider()
+                    # vlyr.startEditing()
+                    dprov.addAttributes([QgsField("StringNumber", QVariant.Int)])
+                    vlyr.updateFields() 
+                    
+                    number_of_segments = len(lines)
+                    
+                    for i in range(1, number_of_segments + 1): # a list of polylines, which are internally lists too
+                        entry = lines.get(i)
+                        # print(entry)
+                        new_polyline = []
+                        for individual_point in entry:
+                            newPoint = QgsPoint(float(individual_point[2]), float(individual_point[1]), float(individual_point[3]))
+                            new_polyline.append(newPoint)
+                        f = QgsFeature()
+                        f.setGeometry(QgsGeometry.fromPolyline(new_polyline))
+                        geom = f.geometry()
+                        f.setAttributes([int(entry[0][0])])
+                    
+                        
+                        dprov.addFeature(f)
+                        vlyr.commitChanges()
+                        vlyr.updateExtents()
+                    QgsProject.instance().addMapLayers([vlyr])
+                # end add polylines
+                
+                # add points
+                if len(points) > 0:
+                    # set it up
+                    vlyr = QgsVectorLayer("Point", "Imported Surpac Points", "memory")
+                    
+                    dprov = vlyr.dataProvider()
+                    # vlyr.startEditing()
+                    dprov.addAttributes([QgsField("StringNumber", QVariant.Int), QgsField("Elev", QVariant.Double)])
+                    vlyr.updateFields() 
+                    
+                    for key in points.keys():
+                        entry = points.get(key)
+                        # print(entry)
+                        f = QgsFeature()
+                        f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(float(entry[0][2]),float(entry[0][1]))))
+                        f.setAttributes([int(entry[0][0]), float(entry[0][3])])
+                        dprov.addFeature(f)
+                        vlyr.commitChanges()
+                        vlyr.updateExtents()
+                    QgsProject.instance().addMapLayers([vlyr])
+                    
+                # add polygons
+                if len(polygons) > 0:
+                    # set it up
+                    vlyr = QgsVectorLayer("Polygon", "Imported Surpac Polygons", "memory")
+                    
+                    dprov = vlyr.dataProvider()
+                    # vlyr.startEditing()
+                    dprov.addAttributes([QgsField("StringNumber", QVariant.Int), QgsField("Elev", QVariant.Double)])
+                    vlyr.updateFields() 
+                    
+                    number_of_segments = len(polygons)
+                    
+                    for i in range(1, number_of_segments + 1): # a list of polylines, which are internally lists too
+                        entry = polygons.get(i)
+                        # print(entry)
+                        point = QPointF()
+                        new_polygon = QPolygonF()
+                        for individual_point in entry:
+                            point.setX(float(individual_point[2]))
+                            point.setY(float(individual_point[1]))
+                            new_polygon.append(point)
+                        f = QgsFeature()
+                        geomP = QgsGeometry.fromQPolygonF(new_polygon)
+                        f.setGeometry(geomP)
+                        f.setAttributes([int(entry[0][0]), float(entry[0][3])])
+                        
+                        dprov.addFeature(f)
+                        vlyr.commitChanges()
+                        vlyr.updateExtents()
+                    QgsProject.instance().addMapLayers([vlyr])
+                
