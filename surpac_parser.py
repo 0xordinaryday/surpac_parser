@@ -39,6 +39,14 @@ import os.path
 import sys
 import os
 
+def resolve_file(name, basepath=None):
+    if not basepath:
+      basepath = os.path.dirname(os.path.realpath(__file__))
+    return os.path.join(basepath)
+
+filep = resolve_file('surpac_parser.py')
+sys.path.append(filep)
+
 
 class SurpacParser:
     """QGIS Plugin Implementation."""
@@ -216,7 +224,7 @@ class SurpacParser:
 
         # Create the dialog with elements (after translation) and keep reference
         # Only create GUI ONCE in callback, so that it will only load when the plugin is started
-        if self.first_start == True:
+        if self.first_start:
             self.first_start = False
             self.dlg = SurpacParserDialog()
             self.dlg.pushButton.clicked.connect(self.select_output_file)
@@ -248,7 +256,6 @@ class SurpacParser:
                     # write feature attributes
                     for f in selectedLayer.getFeatures():
                     
-                        # 
                         # retrieve every feature with its geometry and attributes
                         # fetch geometry
                         # show some information about the feature geometry
@@ -340,26 +347,34 @@ class SurpacParser:
                         else:
                             print("Unknown or invalid geometry")
                                         
-                    footer1 = '0, 0.000, 0.000, 0.000,' + '\n'   # always have SEGBREAK at end of segment, so don't need this
                     footer2 = '0, 0.000, 0.000, 0.000, END' + '\n'
                     output_file.write(footer2)
                 self.iface.messageBar().pushMessage("Success", "Output file written at " + export_filename, level=Qgis.Success, duration=3)
+                # this completes the code for the EXPORTING functions
+                
+                
+            # this is the code for the IMPORTING functions
             elif export_filename == '' and import_filename != '':
             
-                # some vaiables
+                # some variables to hold the parsed surpac data when importing
+                maximum_d_fields = 0  # holds the maximum number of seen d fields
                 new_segment = []
                 points = {}
                 lines = {}
                 polygons = {}
                 
-                # get file length
+                # get file length as a number of lines
                 with open(import_filename, 'r') as infile:
                     file_length = sum(1 for line in infile)
                 
                 def process(input_line):
-                    nonlocal new_segment
+                    nonlocal new_segment  # variable is not in the local scope
+                    nonlocal maximum_d_fields
                     splitline = input_line.strip().split(',')
                     string_number = int(splitline[0])
+                    number_of_d_fields = len(splitline) - 4
+                    if number_of_d_fields > maximum_d_fields:
+                        maximum_d_fields = number_of_d_fields
                     y = float(splitline[1])
                     x = float(splitline[2])
                     if string_number == 0:  # is a segment break
@@ -378,8 +393,12 @@ class SurpacParser:
 
                 with open(import_filename, 'r') as infile:
                     for index, line in enumerate(infile):
-                        if index + 1 < file_length and index > 1:
+                        if index + 1 < file_length and index > 1:  # don't need the first two or last two lines
                             process(line)
+                   
+                print("Maximum D Fields: ", maximum_d_fields)
+                # once the above has run, the surpac file information will be stored in the three dictionaries
+                # each one may or may not be empty, depending on what form the original data had
                 '''
                 print('points:')
                 for key in points.keys():
@@ -403,10 +422,8 @@ class SurpacParser:
                     dprov.addAttributes([QgsField("StringNumber", QVariant.Int)])
                     vlyr.updateFields() 
                     
-                    number_of_segments = len(lines)
-                    
-                    for i in range(1, number_of_segments + 1): # a list of polylines, which are internally lists too
-                        entry = lines.get(i)
+                    for key in lines.keys(): # a list of polylines, which are internally lists too
+                        entry = lines.get(key)
                         # print(entry)
                         new_polyline = []
                         for individual_point in entry:
@@ -455,10 +472,8 @@ class SurpacParser:
                     dprov.addAttributes([QgsField("StringNumber", QVariant.Int), QgsField("Elev", QVariant.Double)])
                     vlyr.updateFields() 
                     
-                    number_of_segments = len(polygons)
-                    
-                    for i in range(1, number_of_segments + 1): # a list of polylines, which are internally lists too
-                        entry = polygons.get(i)
+                    for key in polygons.keys():
+                        entry = polygons.get(key)
                         # print(entry)
                         point = QPointF()
                         new_polygon = QPolygonF()
@@ -474,5 +489,8 @@ class SurpacParser:
                         dprov.addFeature(f)
                         vlyr.commitChanges()
                         vlyr.updateExtents()
+                    vlyr.loadNamedStyle(filep + '/style_black_poly.qml')
                     QgsProject.instance().addMapLayers([vlyr])
+            self.dlg.lineEdit.clear()
+            self.dlg.lineEdit_2.clear()        
                 
