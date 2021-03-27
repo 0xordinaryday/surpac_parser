@@ -204,19 +204,14 @@ class SurpacParser:
                 action)
             self.iface.removeToolBarIcon(action)
             
-            
-    def getLayerByName(self, layer_name):
-        layerList = QgsProject.instance().layerTreeRoot().findLayers()
-        for layer in layerList:
-            if layer.name() == layer_name:
-                return layer
-            
+    def getLayerList(self):
+        return QgsProject.instance().mapLayers().values()
             
     def updateComboBox(self):
         self.dlg.layerBox.clear()
-        layerList = QgsProject.instance().layerTreeRoot().findLayers()
+        layerList = self.getLayerList()
         for layer in layerList:
-            if layer.layer().type() == QgsMapLayer.VectorLayer:
+            if isinstance(layer, QgsVectorLayer):
                 self.dlg.layerBox.addItem(layer.name())
                 
     def run(self):
@@ -242,7 +237,7 @@ class SurpacParser:
             import_filename = self.dlg.lineEdit_2.text()
             if export_filename != '' and import_filename == '':
                 with open(export_filename, 'w') as output_file:
-                    selectedLayer = self.getLayerByName(self.dlg.layerBox.currentText()).layer()
+                    selectedLayer = QgsProject.instance().mapLayersByName(self.dlg.layerBox.currentText())[0]
                     fieldnames = [field.name() for field in selectedLayer.fields()]
                     # write header
                     # get date/time
@@ -415,7 +410,7 @@ class SurpacParser:
                 # see if we can make vector layer from coordinates - start with a polyline
                 if len(lines) > 0:
                     # set it up
-                    vlyr = QgsVectorLayer("Linestring", "Imported Surpac Polylines", "memory")
+                    vlyr = QgsVectorLayer("Linestring?crs=epsg:28355", "Imported Surpac Polylines", "memory")
                     
                     dprov = vlyr.dataProvider()
                     # vlyr.startEditing()
@@ -444,7 +439,7 @@ class SurpacParser:
                 # add points
                 if len(points) > 0:
                     # set it up
-                    vlyr = QgsVectorLayer("Point", "Imported Surpac Points", "memory")
+                    vlyr = QgsVectorLayer("Point?crs=epsg:28355", "Imported Surpac Points", "memory")
                     
                     dprov = vlyr.dataProvider()
                     # vlyr.startEditing()
@@ -465,7 +460,7 @@ class SurpacParser:
                 # add polygons
                 if len(polygons) > 0:
                     # set it up
-                    vlyr = QgsVectorLayer("Polygon", "Imported Surpac Polygons", "memory")
+                    vlyr = QgsVectorLayer("Polygon?crs=epsg:28355", "Imported Surpac Polygons", "memory")
                     
                     dprov = vlyr.dataProvider()
                     # vlyr.startEditing()
